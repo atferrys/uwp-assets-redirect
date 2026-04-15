@@ -158,11 +158,12 @@ NTSTATUS NTAPI NtCreateFile_Hook(
     ULONG EaLength
 ) {
 
+    UNICODE_STRING* ObjectName;
     std::wstring originalPath;
 
     if(ObjectAttributes && ObjectAttributes->ObjectName) {
-        UNICODE_STRING* name = ObjectAttributes->ObjectName;
-        originalPath.assign(name->Buffer, name->Length / sizeof(WCHAR));
+        ObjectName = ObjectAttributes->ObjectName;
+        originalPath.assign(ObjectName->Buffer, ObjectName->Length / sizeof(WCHAR));
     }
 
     // Check if we should redirect
@@ -191,12 +192,9 @@ NTSTATUS NTAPI NtCreateFile_Hook(
 
             Wh_Log(L"[Redirect Attempt] %s -> %s", originalPath.c_str(), redirectPath.c_str());
 
-            UNICODE_STRING redirectName {};
-            redirectName.Buffer = (PWSTR) redirectPath.c_str();
-            redirectName.Length = (USHORT) (redirectPath.length() * sizeof(WCHAR));
-            redirectName.MaximumLength = redirectName.Length;
-
-            ObjectAttributes->ObjectName = &redirectName;
+            ObjectName->Buffer = (PWSTR) redirectPath.c_str();
+            ObjectName->Length = (USHORT) (redirectPath.length() * sizeof(WCHAR));
+            ObjectName->MaximumLength = ObjectName->Length;
 
             NTSTATUS result = NtCreateFile_Original(
                 FileHandle,
@@ -219,26 +217,10 @@ NTSTATUS NTAPI NtCreateFile_Hook(
 
             Wh_Log(L"[Redirect Fail] Failed with code 0x%08X. Rolling back to original: %s", result, originalPath.c_str());
 
-            UNICODE_STRING originalName {};
-            originalName.Buffer = (PWSTR) originalPath.c_str();
-            originalName.Length = (USHORT) (originalPath.length() * sizeof(WCHAR));
-            originalName.MaximumLength = originalName.Length;
-
-            ObjectAttributes->ObjectName = &originalName;
-
-            return NtCreateFile_Original(
-                FileHandle,
-                DesiredAccess,
-                ObjectAttributes,
-                IoStatusBlock,
-                AllocationSize,
-                FileAttributes,
-                ShareAccess,
-                CreateDisposition,
-                CreateOptions,
-                EaBuffer,
-                EaLength
-            );
+            ObjectName->Buffer = (PWSTR) originalPath.c_str();
+            ObjectName->Length = (USHORT) (originalPath.length() * sizeof(WCHAR));
+            ObjectName->MaximumLength = ObjectName->Length;
+            
         }
 
     }
