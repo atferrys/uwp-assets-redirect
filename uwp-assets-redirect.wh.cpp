@@ -68,14 +68,9 @@ or changing system files permissions.
 #include <windhawk_utils.h>
 #include <windows.h>
 #include <winternl.h>
+#include <format>
 #include <string>
 #include <unordered_map>
-
-static const std::wstring g_TargetBase =
-    L"\\??\\C:\\Program Files\\WindowsApps";
-
-static const std::wstring g_TargetBaseSys =
-    L"\\??\\C:\\Windows\\SystemApps";
 
 std::unordered_map<std::wstring, std::wstring> g_redirections;
 
@@ -244,59 +239,39 @@ void LoadSettings() {
 
     std::unordered_map<std::wstring, std::wstring> redirections;
 
-    for(int i = 0;; i++) {
+    auto add_redirections = [&redirections](std::wstring config_key, std::wstring target_base) {
 
-        PCWSTR bundle = Wh_GetStringSetting(L"windows-apps[%d].bundle", i);
-        PCWSTR assetsFolder = Wh_GetStringSetting(L"windows-apps[%d].assets-folder", i);
-        PCWSTR redirect = Wh_GetStringSetting(L"windows-apps[%d].redirect", i);
+        for(int i = 0;; i++) {
 
-        bool hasRedirection = *bundle || *redirect;
+            PCWSTR bundle = Wh_GetStringSetting(L"%s[%d].bundle", config_key.c_str(), i);
+            PCWSTR assets_folder = Wh_GetStringSetting(L"%s[%d].assets-folder", config_key.c_str(), i);
+            PCWSTR redirect = Wh_GetStringSetting(L"%s[%d].redirect", config_key.c_str(), i);
 
-        if(hasRedirection) {
+            bool hasRedirection = *bundle && *assets_folder && *redirect;
 
-            std::wstring bundleStr(bundle);
-            std::wstring assetsFolderStr(assetsFolder);
-            std::wstring redirectStr(redirect);
+            if(hasRedirection) {
+                
+                auto path = std::format(L"\\??\\{}\\{}_*\\{}", target_base, bundle, assets_folder);
+                auto redirection = std::format(L"\\??\\{}", redirect); 
 
-            redirections[g_TargetBase + L"\\" + bundleStr + L"_*\\" + assetsFolderStr] = L"\\??\\" + redirectStr;
+                redirections[path] = redirection;
 
-        }
+            }
 
-        Wh_FreeStringSetting(bundle);
-        Wh_FreeStringSetting(redirect);
+            Wh_FreeStringSetting(bundle);
+            Wh_FreeStringSetting(assets_folder);
+            Wh_FreeStringSetting(redirect);
 
-        if(!hasRedirection) {
-            break;
-        }
-
-    }
-
-    for(int i = 0;; i++) {
-
-        PCWSTR bundle = Wh_GetStringSetting(L"system-apps[%d].bundle", i);
-        PCWSTR assetsFolder = Wh_GetStringSetting(L"system-apps[%d].assets-folder", i);
-        PCWSTR redirect = Wh_GetStringSetting(L"system-apps[%d].redirect", i);
-
-        bool hasRedirection = *bundle || *redirect;
-
-        if(hasRedirection) {
-
-            std::wstring bundleStr(bundle);
-            std::wstring assetsFolderStr(assetsFolder);
-            std::wstring redirectStr(redirect);
-
-            redirections[g_TargetBaseSys + L"\\" + bundleStr + L"_*\\" + assetsFolderStr] = L"\\??\\" + redirectStr;
+            if(!hasRedirection) {
+                break;
+            }
 
         }
 
-        Wh_FreeStringSetting(bundle);
-        Wh_FreeStringSetting(redirect);
+    };
 
-        if(!hasRedirection) {
-            break;
-        }
-
-    }
+    add_redirections(L"windows-apps", L"C:\\Program Files\\WindowsApps");
+    add_redirections(L"system-apps", L"C:\\Windows\\SystemApps");
 
     g_redirections = std::move(redirections);
 
