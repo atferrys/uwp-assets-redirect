@@ -275,7 +275,7 @@ void LoadSettings() {
 
     g_redirections = std::move(redirections);
 
-    Wh_Log(L"Configuration loaded.");
+    Wh_Log(L"Loaded %d redirection(s).", g_redirections.size());
 
 }
 
