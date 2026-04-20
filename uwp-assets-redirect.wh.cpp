@@ -93,6 +93,17 @@ bool match(const T* pattern, size_t pattern_length, const T* str, size_t string_
             // Find the literal string after the wildcard (until the end)
             size_t literal_len = pattern_length - rest_start;
 
+            // If the wildcard is the last thing present in the pattern
+            if (literal_len == 0) {
+                // Move forward until the first backslash or end of string
+                while (string_index < string_length && str[string_index] != '\\') {
+                    ++string_index;
+                }
+
+                after_match_index = string_index;
+                return true;
+            }
+
             // Try to match this literal in the string
             size_t match_pos = string_index;
             bool found = false;
@@ -174,7 +185,9 @@ NTSTATUS NTAPI NtCreateFile_Hook(
             const wchar_t* pattern = pair.first.c_str();
             size_t patternLength = pair.first.length();
 
-            size_t match_end_index = 0;
+            // If there are no wildcards in pattern, simply
+            // use the end of the pattern as the match_end_index
+            size_t match_end_index = patternLength;
 
             if(match(pattern, patternLength, path, pathLength, match_end_index)) {
                 redirectPath = pair.second + originalPath.substr(match_end_index);
