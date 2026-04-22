@@ -68,6 +68,7 @@ or changing system files permissions.
 #include <windhawk_utils.h>
 #include <windows.h>
 #include <winternl.h>
+#include <shlobj.h>
 #include <format>
 #include <string>
 #include <unordered_map>
@@ -248,6 +249,64 @@ NTSTATUS NTAPI NtCreateFile_Hook(
     );
 }
 
+// Check if mod is hooked to the explorer process that owns the taskbar.
+// Useful for running specific code once. Taken from:
+// https://github.com/ramensoftware/windhawk-mods/blob/43fe260f5738d61ba09018c7de03863defbf40a0/mods/icon-resource-redirect.wh.cpp#L2120-L2122
+
+bool IsExplorerProcess() {
+    WCHAR path[MAX_PATH];
+    if (!GetWindowsDirectory(path, ARRAYSIZE(path))) {
+        Wh_Log(L"GetWindowsDirectory failed");
+        return false;
+    }
+
+    wcscat_s(path, MAX_PATH, L"\\explorer.exe");
+
+    return GetModuleHandle(path) == GetModuleHandle(nullptr);
+}
+
+HWND FindCurrentProcessTaskbarWnd() {
+    HWND hTaskbarWnd = nullptr;
+
+    EnumWindows(
+        [](HWND hWnd, LPARAM lParam) WINAPI -> BOOL {
+            DWORD dwProcessId;
+            WCHAR className[32];
+            if (GetWindowThreadProcessId(hWnd, &dwProcessId) &&
+                dwProcessId == GetCurrentProcessId() &&
+                GetClassName(hWnd, className, ARRAYSIZE(className)) &&
+                _wcsicmp(className, L"Shell_TrayWnd") == 0) {
+                *reinterpret_cast<HWND*>(lParam) = hWnd;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&hTaskbarWnd));
+
+    return hTaskbarWnd;
+}
+
+bool DoesCurrentProcessOwnTaskbar() {
+    return IsExplorerProcess() && FindCurrentProcessTaskbarWnd();
+}
+
+void RefreshIcons() {
+
+    // Only run this once
+    if (!DoesCurrentProcessOwnTaskbar()) {
+        return;
+    }
+
+    // Let other processes some time to init/uninit.
+    Sleep(500);
+
+    // Invalidate icon cache.
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+
+    Wh_Log(L"Icon cache refreshed.");
+
+}
+
 void LoadSettings() {
 
     std::unordered_map<std::wstring, std::wstring> redirections;
@@ -304,11 +363,18 @@ void Wh_ModInit() {
         (void**)&NtCreateFile_Original
     );
 
+    RefreshIcons();
+
     Wh_Log(L"UWP Assets Redirect has been initialized.");
-    
+
 }
 
 void Wh_ModSettingsChanged() {
     Wh_Log(L"Reloading configuration...");
     LoadSettings();
+    RefreshIcons();
+}
+
+void Wh_ModUninit() {
+    RefreshIcons();
 }
