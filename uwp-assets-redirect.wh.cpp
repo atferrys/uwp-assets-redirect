@@ -491,7 +491,119 @@ void ClearRedirectionsCache(bool check_main = true) {
 
 void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirections) {
 
-    auto add_redirections = [&redirections](std::wstring config_key, std::wstring target_base) {
+    auto normalize_path = [](std::wstring path, std::wstring base_path = L"C:\\Windows\\System32\\") -> std::wstring {
+
+        // ### Expand environment strings like %ProgramFiles%
+
+        DWORD path_size = ExpandEnvironmentStringsW(path.c_str(), nullptr, 0);
+
+        if (path_size == 0) {
+            return L"";
+        }
+
+        std::wstring expanded_path(path_size, L'\0');
+        ExpandEnvironmentStringsW(path.c_str(), &expanded_path[0], path_size);
+
+        // Remove trailing null character
+        if (!expanded_path.empty() && expanded_path.back() == L'\0') {
+            expanded_path.pop_back();
+        }
+
+        // ### Make path absolute if relative path like ".\Redirection" is given
+
+        std::filesystem::path relative_path(expanded_path);
+
+        if (relative_path.is_absolute()) {
+            return std::filesystem::weakly_canonical(relative_path).wstring();
+        }
+
+        std::filesystem::path relative_prefixed_path = std::filesystem::path(base_path) / relative_path;
+        std::wstring absolute_path = std::filesystem::weakly_canonical(relative_prefixed_path).wstring();
+
+        // ### Remove trailing slashes
+
+        while (!absolute_path.empty() && absolute_path.back() == L'\\') {
+
+            size_t path_size = absolute_path.size();
+
+            // Stop if it's a drive root like "C:\"
+            if (path_size == 3 && absolute_path[path_size - 2] == L':' && absolute_path[path_size - 1] == L'\\') {
+                break;
+            }
+
+            absolute_path.pop_back();
+
+        }
+
+        return absolute_path;
+
+    };
+
+    auto add_redirections = [&redirections, normalize_path](std::wstring config_key, std::wstring target_base) {
+
+        auto deduct_bundle = [target_base](std::wstring bundle, std::wstring& bundle_id, std::wstring& assets_folder) {
+
+            const auto trim = [](std::wstring string) -> std::wstring {
+
+                const auto should_trim = [](wchar_t character) {
+                    return std::iswspace(character) || character == L'\\';
+                };
+
+                auto start = std::find_if_not(string.begin(), string.end(), should_trim);
+                auto end = std::find_if_not(string.rbegin(), string.rend(), should_trim).base();
+
+                if (start >= end) {
+                    return L"";
+                }
+
+                return std::wstring(start, end);
+
+            };
+
+            size_t separator_index = bundle.find('|');
+
+            if(bundle.find('\\') < (separator_index == std::wstring::npos ? bundle.size() : separator_index)) {
+                Wh_Log(L"Invalid bundle name for \"%s\".", bundle.c_str());
+                return;
+            }
+
+            if(separator_index != std::wstring::npos) {
+
+                bundle_id = trim(bundle.substr(0, separator_index));
+                assets_folder = trim(bundle.substr(separator_index + 1));
+
+                if(assets_folder.find(L".\\") != std::wstring::npos ||
+                   assets_folder.find(L"\\.") != std::wstring::npos ||
+                   assets_folder == L"..") {
+                    assets_folder = g_default_assets_folder;
+                    Wh_Log(L"Invalid assets folder for \"%s\", falling back to default.", bundle_id.c_str());
+                }
+
+                return;
+            }
+
+            bundle_id = trim(bundle);
+            std::wstring bundle_folder = find_bundle_folder(target_base, bundle_id);
+
+            if(bundle_folder.empty()) {
+                assets_folder = g_default_assets_folder;
+                Wh_Log(L"Failed to find bundle folder for \"%s\", falling back to default assets folder.", bundle_id.c_str());
+                return;
+            }
+
+            assets_folder = get_assets_folder(std::format(L"{}\\AppxManifest.xml", bundle_folder));
+
+            if(assets_folder.empty()) {
+                assets_folder = g_default_assets_folder;
+                Wh_Log(L"Failed to get assets folder for \"%s\" automatically, falling back to default.", bundle_id.c_str());
+                return;
+            }
+
+            Wh_Log(L"Automatically found assets folder for \"%s\" in \"%s\".", bundle_id.c_str(), assets_folder.c_str());
+
+        };
+
+        // Load from settings
 
         for(int i = 0;; i++) {
 
@@ -502,40 +614,17 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
             if(hasRedirection) {
 
-                std::wstring wbundle = std::wstring(bundle);
-                size_t separator_index = wbundle.find('|');
-
                 std::wstring bundle_id;
                 std::wstring assets_folder;
 
-                if(separator_index != std::wstring::npos) {
-                    bundle_id = wbundle.substr(0, separator_index);
-                    assets_folder = wbundle.substr(separator_index + 1);
-                } else {
+                deduct_bundle(std::wstring(bundle), bundle_id, assets_folder);
 
-                    bundle_id = wbundle;
-                    std::wstring bundle_folder = find_bundle_folder(target_base, bundle_id);
-
-                    if(bundle_folder.empty()) {
-                        assets_folder = g_default_assets_folder;
-                        Wh_Log(L"Failed to find bundle folder for \"%s\", falling back to default assets folder.", bundle_id.c_str());
-                    } else {
-
-                        assets_folder = get_assets_folder(std::format(L"{}\\AppxManifest.xml", bundle_folder));
-
-                        if(assets_folder.empty()) {
-                            assets_folder = g_default_assets_folder;
-                            Wh_Log(L"Failed to get assets folder for \"%s\" automatically, falling back to default.");
-                        } else {
-                            Wh_Log(L"Automatically found assets folder for \"%s\" in \"%s\".", bundle_id.c_str(), assets_folder.c_str());
-                        }
-
-                    }
-
+                if(bundle_id.empty() || assets_folder.empty()) {
+                    continue;
                 }
 
                 auto path = std::format(L"\\??\\{}\\{}_*\\{}", target_base, bundle_id, assets_folder);
-                auto redirection = std::format(L"\\??\\{}", redirect);
+                auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
 
                 redirections[path] = redirection;
 
@@ -555,6 +644,8 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
     add_redirections(L"windows-apps", L"C:\\Program Files\\WindowsApps");
     add_redirections(L"system-apps", L"C:\\Windows\\SystemApps");
 
+    // Load from settings
+
     for(int i = 0;; i++) {
 
         PCWSTR assets_path = Wh_GetStringSetting(L"custom[%d].assets-path", i);
@@ -564,8 +655,8 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
         if(hasRedirection) {
 
-            auto path = std::format(L"\\??\\{}", assets_path);
-            auto redirection = std::format(L"\\??\\{}", redirect);
+            auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
+            auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
 
             redirections[path] = redirection;
 
