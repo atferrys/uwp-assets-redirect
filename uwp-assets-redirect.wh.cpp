@@ -25,15 +25,15 @@ or changing system files permissions.
 
 // ==WindhawkModSettings==
 /*
-- windows-apps: 
-  - - bundle: "Microsoft.WindowsCalculator"
+- windows-apps:
+  - - bundle: ""
       $name: Bundle name
       $description: >-
         The application bundle without any version appended.
 
         You can get easily get this via Task Manager, follow the guide in
         the details tab for more information.
-    - redirect: "C:\\Custom Icons\\Calculator"
+    - redirect: ""
       $name: Redirection folder
       $description: The folder with the custom assets files.
   $name: WindowsApps Redirections
@@ -42,15 +42,15 @@ or changing system files permissions.
 
     This is used for Microsoft Store apps and some system apps.
 
-- system-apps: 
-  - - bundle: "Microsoft.PPIProjection"
+- system-apps:
+  - - bundle: ""
       $name: Bundle name
       $description: >-
         The application bundle without any version appended.
 
         You can get easily get this via Task Manager, follow the guide in
         the details tab for more information.
-    - redirect: "C:\\Custom Icons\\Wireless Display"
+    - redirect: ""
       $name: Redirection folder
       $description: The folder with the custom assets files.
   $name: SystemApps Redirections
@@ -59,13 +59,13 @@ or changing system files permissions.
 
     This is used for some system apps like "Wireless Display".
 - custom:
-  - - assets-path: "C:\\Windows\\ImmersiveControlPanel\\images"
+  - - assets-path: ""
       $name: Original path
       $description: >-
         The full application assets path.
 
         Can be a pattern where '*' matches any number of characters.
-    - redirect: "C:\\Custom Icons\\Settings"
+    - redirect: ""
       $name: Redirection folder
       $description: The folder with the custom assets files.
   $name: ⚠️ CAUTION - Custom Redirections
