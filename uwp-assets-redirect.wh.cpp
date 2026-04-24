@@ -33,8 +33,6 @@ or changing system files permissions.
 
         You can get easily get this via Task Manager, follow the guide in
         the details tab for more information.
-    - assets-folder: "Assets"
-      $name: Assets folder
     - redirect: "C:\\Custom Icons\\Calculator"
       $name: Redirection folder
       $description: The folder with the custom assets files.
@@ -52,8 +50,6 @@ or changing system files permissions.
 
         You can get easily get this via Task Manager, follow the guide in
         the details tab for more information.
-    - assets-folder: "Assets"
-      $name: Assets folder
     - redirect: "C:\\Custom Icons\\Wireless Display"
       $name: Redirection folder
       $description: The folder with the custom assets files.
@@ -90,6 +86,8 @@ or changing system files permissions.
 #include <format>
 #include <string>
 #include <unordered_map>
+#include <fstream>
+#include <sstream>
 
 std::unordered_map<std::wstring, std::wstring> g_redirections;
 
@@ -325,6 +323,85 @@ void RefreshIcons() {
 
 }
 
+std::wstring get_assets_folder(const std::wstring& appx_manifest) {
+
+    std::wifstream file(appx_manifest.c_str());
+
+    if (!file.is_open()) {
+        Wh_Log(L"Failed to open manifest: %s", appx_manifest.c_str());
+        return L"";
+    }
+
+    std::wstringstream buffer;
+    buffer << file.rdbuf();
+
+    std::wstring xml = buffer.str();
+
+    const std::wstring openTag = L"<Logo>";
+    const std::wstring closeTag = L"</Logo>";
+
+    size_t start = xml.find(openTag);
+
+    if (start == std::wstring::npos) {
+        Wh_Log(L"Failed to find opening <Logo> tag: %s", appx_manifest.c_str());
+        return L"";
+    }
+
+    start += openTag.length();
+    size_t end = xml.find(closeTag, start);
+
+    if (end == std::wstring::npos) {
+        Wh_Log(L"Failed to find closing <Logo> tag: %s", appx_manifest.c_str());
+        return L"";
+    }
+
+    std::wstring logo_content = xml.substr(start, end - start);
+    size_t backslash_position = logo_content.find_last_of('\\');
+
+    // If assets are in root directory
+    if (backslash_position == std::wstring::npos) {
+        Wh_Log(L"Failed to find external assets folder, assets are in the root directory: %s", appx_manifest.c_str());
+        return L"";
+    }
+
+    return logo_content.substr(0, backslash_position);
+
+}
+
+std::wstring find_bundle_folder(const std::wstring& apps_directory, const std::wstring& app_bundle) {
+
+    for (const auto& entry : std::filesystem::directory_iterator(apps_directory)) {
+
+        if (!entry.is_directory()) {
+            continue;
+        }
+
+        std::wstring path = entry.path().wstring();
+
+        size_t last_backslash_index = path.find_last_of('\\');
+        size_t version_index = path.find_first_of('_', last_backslash_index);
+
+        if (last_backslash_index == std::string::npos || version_index == std::string::npos) {
+            continue;
+        }
+
+        if (path.substr(last_backslash_index + 1, version_index - last_backslash_index - 1) != app_bundle) {
+            continue;
+        }
+
+        if (path.find(L"neutral", version_index) != std::string::npos) {
+            continue;
+        }
+
+        return path;
+
+    }
+
+    return L"";
+}
+
+const std::wstring g_default_assets_folder = L"Assets";
+
 void LoadSettings() {
 
     std::unordered_map<std::wstring, std::wstring> redirections;
@@ -334,22 +411,52 @@ void LoadSettings() {
         for(int i = 0;; i++) {
 
             PCWSTR bundle = Wh_GetStringSetting(L"%s[%d].bundle", config_key.c_str(), i);
-            PCWSTR assets_folder = Wh_GetStringSetting(L"%s[%d].assets-folder", config_key.c_str(), i);
             PCWSTR redirect = Wh_GetStringSetting(L"%s[%d].redirect", config_key.c_str(), i);
 
-            bool hasRedirection = *bundle && *assets_folder && *redirect;
+            bool hasRedirection = *bundle && *redirect;
 
             if(hasRedirection) {
-                
-                auto path = std::format(L"\\??\\{}\\{}_*\\{}", target_base, bundle, assets_folder);
-                auto redirection = std::format(L"\\??\\{}", redirect); 
+
+                std::wstring wbundle = std::wstring(bundle);
+                size_t separator_index = wbundle.find('|');
+
+                std::wstring bundle_id;
+                std::wstring assets_folder;
+
+                if(separator_index != std::wstring::npos) {
+                    bundle_id = wbundle.substr(0, separator_index);
+                    assets_folder = wbundle.substr(separator_index + 1);
+                } else {
+
+                    bundle_id = wbundle;
+                    std::wstring bundle_folder = find_bundle_folder(target_base, bundle_id);
+
+                    if(bundle_folder.empty()) {
+                        assets_folder = g_default_assets_folder;
+                        Wh_Log(L"Failed to find bundle folder for %s, falling back to default assets folder.", bundle_id.c_str());
+                    } else {
+
+                        assets_folder = get_assets_folder(std::format(L"{}\\AppxManifest.xml", bundle_folder));
+
+                        if(assets_folder.empty()) {
+                            assets_folder = g_default_assets_folder;
+                            Wh_Log(L"Failed to get assets folder for %s automatically, falling back to default.");
+                        } else {
+                            Wh_Log(L"Found assets folder for %s automatically in %s", bundle_id.c_str(), assets_folder.c_str());
+                        }
+
+                    }
+
+                }
+
+                auto path = std::format(L"\\??\\{}\\{}_*\\{}", target_base, bundle_id, assets_folder);
+                auto redirection = std::format(L"\\??\\{}", redirect);
 
                 redirections[path] = redirection;
 
             }
 
             Wh_FreeStringSetting(bundle);
-            Wh_FreeStringSetting(assets_folder);
             Wh_FreeStringSetting(redirect);
 
             if(!hasRedirection) {
