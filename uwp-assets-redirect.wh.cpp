@@ -88,6 +88,7 @@ or changing system files permissions.
 #include <unordered_map>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 std::unordered_map<std::wstring, std::wstring> g_redirections;
 
@@ -400,11 +401,95 @@ std::wstring find_bundle_folder(const std::wstring& apps_directory, const std::w
     return L"";
 }
 
+const std::wstring g_redirections_cache_size_key = L"redirections_cache_size";
+const std::wstring g_redirections_cache_key = L"redirections_cache";
+
 const std::wstring g_default_assets_folder = L"Assets";
+const int g_max_read_tries = 20;
 
-void LoadSettings() {
+void write_redirections_cache(std::unordered_map<std::wstring, std::wstring>& redirections) {
 
-    std::unordered_map<std::wstring, std::wstring> redirections;
+    std::vector<uint8_t> buffer;
+
+    auto write = [&](const void* data, size_t size) {
+        size_t oldSize = buffer.size();
+        buffer.resize(oldSize + size);
+        memcpy(buffer.data() + oldSize, data, size);
+    };
+
+    // number of entries
+    uint32_t count = (uint32_t) redirections.size();
+    write(&count, sizeof(count));
+
+    for (const auto& [key, value] : redirections) {
+        uint32_t keyLen = (uint32_t) key.size();
+        write(&keyLen, sizeof(keyLen));
+        write(key.data(), keyLen * sizeof(wchar_t));
+
+        uint32_t valueLen = (uint32_t) value.size();
+        write(&valueLen, sizeof(valueLen));
+        write(value.data(), valueLen * sizeof(wchar_t));
+    }
+
+    Wh_SetBinaryValue(g_redirections_cache_key.c_str(), buffer.data(), buffer.size());
+    Wh_SetIntValue(g_redirections_cache_size_key.c_str(), buffer.size());
+
+}
+
+bool read_redirections_cache(std::unordered_map<std::wstring, std::wstring>& redirections) {
+
+    std::vector<uint8_t> buffer;
+
+    int buffer_size = Wh_GetIntValue(g_redirections_cache_size_key.c_str(), -1);
+
+    if(buffer_size == -1) {
+        return false;
+    }
+
+    buffer.resize(buffer_size);
+
+    if(Wh_GetBinaryValue(g_redirections_cache_key.c_str(), buffer.data(), buffer.size()) == 0) {
+        return false;
+    }
+
+    const uint8_t* ptr = buffer.data();
+
+    auto read = [&](void* out, size_t size) {
+        memcpy(out, ptr, size);
+        ptr += size;
+    };
+
+    uint32_t count;
+    read(&count, sizeof(count));
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t keyLen;
+        read(&keyLen, sizeof(keyLen));
+
+        std::wstring key(keyLen, L'\0');
+        read(key.data(), keyLen * sizeof(wchar_t));
+
+        uint32_t valueLen;
+        read(&valueLen, sizeof(valueLen));
+
+        std::wstring value(valueLen, L'\0');
+        read(value.data(), valueLen * sizeof(wchar_t));
+
+        redirections.emplace(std::move(key), std::move(value));
+    }
+
+    return true;
+
+}
+
+void ClearRedirectionsCache(bool check_main = true) {
+    if(!check_main || DoesCurrentProcessOwnTaskbar()) {
+        Wh_DeleteValue(g_redirections_cache_size_key.c_str());
+        Wh_DeleteValue(g_redirections_cache_key.c_str());
+    }
+}
+
+void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirections) {
 
     auto add_redirections = [&redirections](std::wstring config_key, std::wstring target_base) {
 
@@ -433,16 +518,16 @@ void LoadSettings() {
 
                     if(bundle_folder.empty()) {
                         assets_folder = g_default_assets_folder;
-                        Wh_Log(L"Failed to find bundle folder for %s, falling back to default assets folder.", bundle_id.c_str());
+                        Wh_Log(L"Failed to find bundle folder for \"%s\", falling back to default assets folder.", bundle_id.c_str());
                     } else {
 
                         assets_folder = get_assets_folder(std::format(L"{}\\AppxManifest.xml", bundle_folder));
 
                         if(assets_folder.empty()) {
                             assets_folder = g_default_assets_folder;
-                            Wh_Log(L"Failed to get assets folder for %s automatically, falling back to default.");
+                            Wh_Log(L"Failed to get assets folder for \"%s\" automatically, falling back to default.");
                         } else {
-                            Wh_Log(L"Found assets folder for %s automatically in %s", bundle_id.c_str(), assets_folder.c_str());
+                            Wh_Log(L"Automatically found assets folder for \"%s\" in \"%s\".", bundle_id.c_str(), assets_folder.c_str());
                         }
 
                     }
@@ -495,9 +580,43 @@ void LoadSettings() {
 
     }
 
-    g_redirections = std::move(redirections);
+}
 
-    Wh_Log(L"Loaded %d redirection(s).", g_redirections.size());
+void LoadSettings() {
+
+    std::unordered_map<std::wstring, std::wstring> redirections;
+
+    auto load_and_cache = [&redirections]() {
+
+        ClearRedirectionsCache(false);
+        LoadRedirections(redirections);
+        write_redirections_cache(redirections);
+
+        Wh_Log(L"Loaded %i redirections and stored them to shared cache.", redirections.size());
+        g_redirections = std::move(redirections);
+
+    };
+
+    if(DoesCurrentProcessOwnTaskbar()) {
+        load_and_cache();
+        return;
+    }
+
+    int tries = 0;
+
+    while(tries++ < g_max_read_tries && !read_redirections_cache(redirections)) {
+        Wh_Log(L"Redirections haven't been cached yet, retrying... (%i/%i)", tries, g_max_read_tries);
+        Sleep(100);
+    }
+
+    if(tries > g_max_read_tries) {
+        Wh_Log(L"Redirections cache read tries exceeded, loading redirections anyways.");
+        load_and_cache();
+        return;
+    }
+
+    Wh_Log(L"Loaded %i redirections from shared cache.", redirections.size());
+    g_redirections = std::move(redirections);
 
 }
 
@@ -519,12 +638,23 @@ void Wh_ModInit() {
 
 }
 
-void Wh_ModSettingsChanged() {
+BOOL Wh_ModSettingsChanged(BOOL* bReload) {
+
     Wh_Log(L"Reloading configuration...");
+
+    if(!IsExplorerProcess()) {
+        *bReload = TRUE;
+        return TRUE;
+    }
+
     LoadSettings();
     RefreshIcons();
+
+    return TRUE;
+
 }
 
 void Wh_ModUninit() {
+    ClearRedirectionsCache();
     RefreshIcons();
 }
