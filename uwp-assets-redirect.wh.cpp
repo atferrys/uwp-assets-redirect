@@ -25,6 +25,14 @@ or changing system files permissions.
 
 // ==WindhawkModSettings==
 /*
+- theme-paths: [""]
+  $name: Theme paths
+  $description: >-
+    Each path can be a folder with custom assets files and a theme.ini file,
+    or the .ini theme file itself.
+
+    Follow the guide on how to create a theme file in the details tab for more information.
+
 - windows-apps:
   - - bundle: ""
       $name: Bundle name
@@ -539,7 +547,81 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
-    auto add_bundle_redirections = [&redirections, normalize_path](std::wstring config_key, std::wstring target_base) {
+    auto read_themes_section = [normalize_path](std::wstring section_key, auto on_pair_read) {
+
+        for(int i = 0;; i++) {
+
+            PCWSTR theme_path = Wh_GetStringSetting(L"theme-paths[%d]", i);
+
+            bool hasThemePath = *theme_path;
+
+            if(hasThemePath) {
+
+                std::filesystem::path normalized_theme_path = normalize_path(theme_path);
+
+                std::filesystem::path theme_ini;
+                std::filesystem::path theme_folder;
+
+                if (std::filesystem::is_directory(normalized_theme_path)) {
+                    theme_ini = normalized_theme_path / L"theme.ini";
+                    theme_folder = normalized_theme_path;
+                } else {
+                    theme_ini = normalized_theme_path;
+                    theme_folder = normalized_theme_path.parent_path();
+                }
+
+                if(!std::filesystem::exists(theme_ini)) {
+                    Wh_Log(L"Failed to read theme file, path doesn't exist: %s", theme_ini.c_str());
+                    continue;
+                }
+
+                auto theme_ini_size = std::filesystem::file_size(theme_ini);
+                std::wstring buffer(theme_ini_size + 2, L'\0');
+
+                DWORD result = GetPrivateProfileSection(
+                    section_key.c_str(),
+                    buffer.data(), buffer.size(),
+                    theme_ini.c_str()
+                );
+
+                if (!result || result == buffer.size() - 2) {
+                    Wh_Log(L"Error reading section \"%s\" from theme file: %s - Error %u", section_key.c_str(), theme_ini.c_str(), GetLastError());
+                    continue;
+                }
+
+                const wchar_t* ptr = buffer.data();
+
+                while (*ptr) {
+
+                    std::wstring entry(ptr);
+                    size_t separator_index = entry.find(L'=');
+
+                    if (separator_index != std::wstring::npos) {
+
+                        std::wstring key = entry.substr(0, separator_index);
+                        std::wstring value = entry.substr(separator_index + 1);
+
+                        on_pair_read(key, value, theme_folder);
+
+                    }
+
+                    ptr += entry.size() + 1;
+
+                }
+
+            }
+
+            Wh_FreeStringSetting(theme_path);
+
+            if(!hasThemePath) {
+                break;
+            }
+
+        }
+
+    };
+
+    auto add_bundle_redirections = [&redirections, normalize_path, read_themes_section](std::wstring config_key, std::wstring target_base) {
 
         auto deduct_bundle = [target_base](std::wstring bundle, std::wstring& bundle_id, std::wstring& assets_folder) {
 
@@ -639,9 +721,31 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
         }
 
+        // Load from theme paths
+
+        const auto add_redirection = [&redirections, normalize_path, deduct_bundle, target_base](std::wstring bundle, std::wstring redirect, std::filesystem::path theme_folder) {
+
+            std::wstring bundle_id;
+            std::wstring assets_folder;
+
+            deduct_bundle(std::wstring(bundle), bundle_id, assets_folder);
+
+            if(bundle_id.empty() || assets_folder.empty()) {
+                return;
+            }
+
+            auto path = std::format(L"\\??\\{}\\{}_*\\{}", target_base, bundle_id, assets_folder);
+            auto redirection = std::format(L"\\??\\{}", normalize_path(redirect, theme_folder));
+
+            redirections[path] = redirection;
+
+        };
+
+        read_themes_section(config_key, add_redirection);
+
     };
 
-    auto add_custom_redirections = [&redirections, normalize_path](std::wstring config_key) {
+    auto add_custom_redirections = [&redirections, normalize_path, read_themes_section](std::wstring config_key) {
 
         // Load from settings
 
@@ -669,6 +773,19 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
             }
 
         }
+
+        // Load from theme paths
+
+        const auto add_redirection = [&redirections, normalize_path](std::wstring assets_path, std::wstring redirect, std::filesystem::path theme_folder) {
+
+            auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
+            auto redirection = std::format(L"\\??\\{}", normalize_path(redirect, theme_folder));
+
+            redirections[path] = redirection;
+
+        };
+
+        read_themes_section(config_key, add_redirection);
 
     };
 
