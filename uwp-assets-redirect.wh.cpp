@@ -539,7 +539,7 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
-    auto add_redirections = [&redirections, normalize_path](std::wstring config_key, std::wstring target_base) {
+    auto add_bundle_redirections = [&redirections, normalize_path](std::wstring config_key, std::wstring target_base) {
 
         auto deduct_bundle = [target_base](std::wstring bundle, std::wstring& bundle_id, std::wstring& assets_folder) {
 
@@ -641,35 +641,41 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
-    add_redirections(L"windows-apps", L"C:\\Program Files\\WindowsApps");
-    add_redirections(L"system-apps", L"C:\\Windows\\SystemApps");
+    auto add_custom_redirections = [&redirections, normalize_path](std::wstring config_key) {
 
-    // Load from settings
+        // Load from settings
 
-    for(int i = 0;; i++) {
+        for(int i = 0;; i++) {
 
-        PCWSTR assets_path = Wh_GetStringSetting(L"custom[%d].assets-path", i);
-        PCWSTR redirect = Wh_GetStringSetting(L"custom[%d].redirect", i);
+            PCWSTR assets_path = Wh_GetStringSetting(L"%s[%d].assets-path", config_key.c_str(), i);
+            PCWSTR redirect = Wh_GetStringSetting(L"%s[%d].redirect", config_key.c_str(), i);
 
-        bool hasRedirection = *assets_path && *redirect;
+            bool hasRedirection = *assets_path && *redirect;
 
-        if(hasRedirection) {
+            if(hasRedirection) {
 
-            auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
-            auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
+                auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
+                auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
 
-            redirections[path] = redirection;
+                redirections[path] = redirection;
+
+            }
+
+            Wh_FreeStringSetting(assets_path);
+            Wh_FreeStringSetting(redirect);
+
+            if(!hasRedirection) {
+                break;
+            }
 
         }
 
-        Wh_FreeStringSetting(assets_path);
-        Wh_FreeStringSetting(redirect);
+    };
 
-        if(!hasRedirection) {
-            break;
-        }
+    add_bundle_redirections(L"windows-apps", L"C:\\Program Files\\WindowsApps");
+    add_bundle_redirections(L"system-apps", L"C:\\Windows\\SystemApps");
 
-    }
+    add_custom_redirections(L"custom");
 
 }
 
