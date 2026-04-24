@@ -62,6 +62,24 @@ or changing system files permissions.
     Redirections for the apps found in "C:\Windows\SystemApps".
 
     This is used for some system apps like "Wireless Display".
+- custom:
+  - - assets-path: "C:\\Windows\\ImmersiveControlPanel\\images"
+      $name: Original path
+      $description: >-
+        The full application assets path.
+
+        Can be a pattern where '*' matches any number of characters.
+    - redirect: "C:\\Custom Icons\\Settings"
+      $name: Redirection folder
+      $description: The folder with the custom assets files.
+  $name: ⚠️ CAUTION - Custom Redirections
+  $description: >-
+    Redirections for system apps that aren't found in any of the previous folders.
+
+    This can be used for apps like "Settings".
+
+    You'll have to specify the assets folder in the path this time and not
+    simply the app bundle.
 */
 // ==/WindhawkModSettings==
 
@@ -344,6 +362,31 @@ void LoadSettings() {
 
     add_redirections(L"windows-apps", L"C:\\Program Files\\WindowsApps");
     add_redirections(L"system-apps", L"C:\\Windows\\SystemApps");
+
+    for(int i = 0;; i++) {
+
+        PCWSTR assets_path = Wh_GetStringSetting(L"custom[%d].assets-path", i);
+        PCWSTR redirect = Wh_GetStringSetting(L"custom[%d].redirect", i);
+
+        bool hasRedirection = *assets_path && *redirect;
+
+        if(hasRedirection) {
+
+            auto path = std::format(L"\\??\\{}", assets_path);
+            auto redirection = std::format(L"\\??\\{}", redirect);
+
+            redirections[path] = redirection;
+
+        }
+
+        Wh_FreeStringSetting(assets_path);
+        Wh_FreeStringSetting(redirect);
+
+        if(!hasRedirection) {
+            break;
+        }
+
+    }
 
     g_redirections = std::move(redirections);
 
