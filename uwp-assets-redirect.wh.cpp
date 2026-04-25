@@ -21,7 +21,7 @@
 Replace UWP app assets (such as icons) without worrying about updates
 or modifying system files permissions.
 
-### Example
+### Example: Before and After
 ![Before and after comparison of some applications](https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/main/docs-assets/example-before-after.png)
 
 ## Theme paths
