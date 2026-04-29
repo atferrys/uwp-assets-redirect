@@ -1213,7 +1213,7 @@ void LoadSettings() {
 
     std::unordered_map<std::wstring, std::wstring> redirections;
 
-    auto load_and_cache = [&redirections]() {
+    if(DoesCurrentProcessOwnTaskbar()) {
 
         ClearRedirectionsCache(false);
         LoadRedirections(redirections);
@@ -1232,28 +1232,25 @@ void LoadSettings() {
         Wh_Log(L"Loaded %i redirections and stored them to shared cache.", redirections.size());
         g_redirections = std::move(redirections);
 
-    };
 
-    if(DoesCurrentProcessOwnTaskbar()) {
-        load_and_cache();
-        return;
+    } else {
+
+        int tries = 0;
+
+        while(tries++ < g_max_read_tries && !read_redirections_cache(redirections)) {
+            Wh_Log(L"Redirections haven't been cached yet, retrying... (%i/%i)", tries, g_max_read_tries);
+            Sleep(100);
+        }
+
+        if(tries > g_max_read_tries) {
+            Wh_Log(L"Redirections cache read tries exceeded.");
+            return;
+        }
+
+        Wh_Log(L"Loaded %i redirections from shared cache.", redirections.size());
+        g_redirections = std::move(redirections);
+
     }
-
-    int tries = 0;
-
-    while(tries++ < g_max_read_tries && !read_redirections_cache(redirections)) {
-        Wh_Log(L"Redirections haven't been cached yet, retrying... (%i/%i)", tries, g_max_read_tries);
-        Sleep(100);
-    }
-
-    if(tries > g_max_read_tries) {
-        Wh_Log(L"Redirections cache read tries exceeded, loading redirections anyways.");
-        load_and_cache();
-        return;
-    }
-
-    Wh_Log(L"Loaded %i redirections from shared cache.", redirections.size());
-    g_redirections = std::move(redirections);
 
 }
 
