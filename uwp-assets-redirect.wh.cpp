@@ -406,12 +406,119 @@ bool DoesCurrentProcessOwnTaskbar() {
     return IsExplorerProcess() && FindCurrentProcessTaskbarWnd();
 }
 
-void RefreshIcons() {
+HANDLE g_refresh_icons_prompt_thread;
+std::atomic<HWND> g_refresh_icons_prompt;
+
+constexpr WCHAR g_refresh_icons_prompt_title[] = L"UWP Assets Redirect - Windhawk";
+constexpr WCHAR g_refresh_icons_prompt_header[] = L"Some icons might need refreshing";
+constexpr WCHAR g_refresh_icons_prompt_body[] =
+    L"To update certain parts of the system, such as the Start Menu, the icon cache must be cleared.\n"
+    L"\n"
+    L"Do you want to clear the icon cache now?";
+constexpr WCHAR g_refresh_icons_prompt_footer[] =
+    L"Icon cache files from File Explorer and Start Menu will be deleted, and File Explorer will be restarted.";
+
+constexpr WCHAR g_clear_cache_command[] =
+    LR"(cmd /c "title UWP Assets Redirect - Windhawk)"
+
+    LR"(& echo Terminating Explorer...)"
+    LR"(& taskkill /f /im explorer.exe)"
+    LR"(& timeout /t 1 /nobreak >nul)"
+
+    LR"(& del /f /q /a "%LocalAppData%\IconCache.db")"
+    LR"(& del /f /s /q /a "%LocalAppData%\Microsoft\Windows\Explorer\iconcache_*.db")"
+    LR"(& del /f /s /q /a "%LocalAppData%\Microsoft\Windows\Explorer\thumbcache_*.db")"
+    LR"(& rmdir /s /q "%LocalAppData%\Packages\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\TempState\")"
+
+    LR"(& start explorer.exe)"
+    LR"(& echo Starting Explorer...)"
+    LR"(& timeout /t 3 /nobreak >nul)";
+
+const std::wstring g_should_refresh_icons_key = L"should_refresh_icons";
+
+void MarkShouldRefreshIcons() {
+    if(DoesCurrentProcessOwnTaskbar()) {
+        Wh_SetIntValue(g_should_refresh_icons_key.c_str(), TRUE);
+    }
+}
+
+void RefreshIcons(bool check_should_refresh = false) {
 
     // Only run this once
     if (!DoesCurrentProcessOwnTaskbar()) {
         return;
     }
+
+    if (g_refresh_icons_prompt_thread) {
+        if (WaitForSingleObject(g_refresh_icons_prompt_thread, 0) != WAIT_OBJECT_0) {
+            return;
+        }
+        CloseHandle(g_refresh_icons_prompt_thread);
+    }
+
+    if (check_should_refresh && !Wh_GetIntValue(g_should_refresh_icons_key.c_str(), FALSE)) {
+        Wh_DeleteValue(g_should_refresh_icons_key.c_str());
+        return;
+    }
+
+    if (check_should_refresh && g_redirections.empty()) {
+        return;
+    }
+
+    g_refresh_icons_prompt_thread = CreateThread(
+        nullptr, 0,
+        [](LPVOID lpParameter) WINAPI -> DWORD {
+
+            static decltype(&TaskDialogIndirect) pTaskDialogIndirect = []() {
+                HMODULE hComctl32 = LoadLibraryEx(L"comctl32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+                if (!hComctl32) {
+                    Wh_Log(L"Failed to load comctl32.dll");
+                    return (decltype(&TaskDialogIndirect)) nullptr;
+                }
+                return (decltype(&TaskDialogIndirect)) GetProcAddress(hComctl32, "TaskDialogIndirect");
+            }();
+            if(!pTaskDialogIndirect) {
+                return 0;
+            }
+            TASKDIALOGCONFIG promptDialogConfig {
+                .cbSize = sizeof(promptDialogConfig),
+                .dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_EXPAND_FOOTER_AREA,
+                .dwCommonButtons = TDCBF_YES_BUTTON | TDCBF_NO_BUTTON,
+                .pszWindowTitle = g_refresh_icons_prompt_title,
+                .pszMainIcon = TD_INFORMATION_ICON,
+                .pszMainInstruction = g_refresh_icons_prompt_header,
+                .pszContent = g_refresh_icons_prompt_body,
+                .pszExpandedInformation = g_refresh_icons_prompt_footer,
+                .pfCallback = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LONG_PTR lpRefData) WINAPI -> HRESULT {
+                    switch (msg) {
+                        case TDN_CREATED:
+                            g_refresh_icons_prompt = hwnd;
+                            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                            break;
+                        case TDN_DESTROYED:
+                            g_refresh_icons_prompt = nullptr;
+                            break;
+                    }
+                    return S_OK;
+                },
+            };
+            int button;
+            if (SUCCEEDED(pTaskDialogIndirect(&promptDialogConfig, &button, nullptr, nullptr)) && button == IDYES) {
+                WCHAR commandLine[ARRAYSIZE(g_clear_cache_command)];
+                memcpy(commandLine, g_clear_cache_command, sizeof(g_clear_cache_command));
+                STARTUPINFO si = {
+                    .cb = sizeof(si),
+                };
+                PROCESS_INFORMATION pi{};
+                if (CreateProcess(nullptr, commandLine, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+                    CloseHandle(pi.hThread);
+                    CloseHandle(pi.hProcess);
+                }
+            }
+            return 0;
+        },
+        nullptr, 0, nullptr
+    );
 
     // Let other processes some time to init/uninit.
     Sleep(500);
@@ -937,7 +1044,7 @@ void Wh_ModInit() {
         (void**)&NtCreateFile_Original
     );
 
-    RefreshIcons();
+    RefreshIcons(true);
 
     Wh_Log(L"UWP Assets Redirect has been initialized.");
 
@@ -947,7 +1054,7 @@ BOOL Wh_ModSettingsChanged(BOOL* bReload) {
 
     Wh_Log(L"Reloading configuration...");
 
-    if(!IsExplorerProcess()) {
+    if(!DoesCurrentProcessOwnTaskbar()) {
         *bReload = TRUE;
         return TRUE;
     }
@@ -962,4 +1069,5 @@ BOOL Wh_ModSettingsChanged(BOOL* bReload) {
 void Wh_ModUninit() {
     ClearRedirectionsCache();
     RefreshIcons();
+    MarkShouldRefreshIcons();
 }
