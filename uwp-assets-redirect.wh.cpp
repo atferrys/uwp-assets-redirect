@@ -175,6 +175,15 @@ but also to the applications themselves, changing their look as well (like the s
 
     You'll have to specify the assets folder in the path this time and not
     simply the app bundle.
+
+- grant-permissions: true
+  $name: Grant permissions
+  $description: >-
+    Some applications and features, such as the Start Menu search,
+    require special permissions in order to access the Assets files.
+
+    Enabling this feature will automatically grant the correct permissions
+    to the redirected files while the mod is active.
 */
 // ==/WindhawkModSettings==
 
@@ -182,6 +191,8 @@ but also to the applications themselves, changing their look as well (like the s
 #include <windows.h>
 #include <winternl.h>
 #include <shlobj.h>
+#include <Aclapi.h>
+#include <sddl.h>
 #include <format>
 #include <string>
 #include <unordered_map>
@@ -190,6 +201,7 @@ but also to the applications themselves, changing their look as well (like the s
 #include <vector>
 
 std::unordered_map<std::wstring, std::wstring> g_redirections;
+BOOL g_grant_permissions;
 
 template <typename T>
 bool match(const T* pattern, size_t pattern_length, const T* str, size_t string_length, size_t& after_match_index) {
@@ -527,6 +539,209 @@ void RefreshIcons(bool check_should_refresh = false) {
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 
     Wh_Log(L"Icon cache refreshed.");
+
+}
+
+// SID for "ALL RESTRICTED APPLICATION PACKAGES"
+constexpr LPCWSTR g_permission_sid = L"S-1-15-2-2";
+constexpr DWORD g_permission_access_mask = GENERIC_READ | GENERIC_EXECUTE;
+
+void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirections, bool toggle) {
+
+    PSID sid;
+
+    if (!ConvertStringSidToSid(g_permission_sid, &sid)) {
+        sid = nullptr;
+    }
+
+    const auto apply_permission = [sid](const std::wstring path) -> BOOL {
+
+        PACL old_permissions = nullptr;
+        PSECURITY_DESCRIPTOR security_descriptor = nullptr;
+
+        DWORD result = GetNamedSecurityInfoW(
+            path.c_str(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            &old_permissions,
+            nullptr,
+            &security_descriptor
+        );
+
+        if (result != ERROR_SUCCESS) {
+            return false;
+        }
+
+        EXPLICIT_ACCESSW rule = {
+            .grfAccessPermissions = g_permission_access_mask,
+            .grfAccessMode = GRANT_ACCESS,
+            .grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+            .Trustee = {
+                .TrusteeForm = TRUSTEE_IS_SID,
+                .TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP,
+                .ptstrName = (LPWSTR) sid
+            }
+        };
+
+        PACL new_permissions = nullptr;
+
+        result = SetEntriesInAclW(
+            1,
+            &rule,
+            old_permissions,
+            &new_permissions
+        );
+
+        if (result != ERROR_SUCCESS) {
+            if (security_descriptor) {
+                LocalFree(security_descriptor);
+            }
+            return false;
+        }
+
+        result = SetNamedSecurityInfoW(
+            (LPWSTR) path.c_str(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            new_permissions,
+            nullptr
+        );
+
+        if (security_descriptor) {
+            LocalFree(security_descriptor);
+        }
+
+        if (new_permissions) {
+            LocalFree(new_permissions);
+        }
+
+        return result == ERROR_SUCCESS;
+
+    };
+
+    const auto remove_permission = [sid](const std::wstring path) -> BOOL {
+
+        PACL old_permissions = nullptr;
+        PSECURITY_DESCRIPTOR security_descriptor = nullptr;
+
+        DWORD result = GetNamedSecurityInfoW(
+            path.c_str(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            &old_permissions,
+            nullptr,
+            &security_descriptor
+        );
+
+        if (result != ERROR_SUCCESS || !old_permissions) {
+            return false;
+        }
+
+        std::vector<EXPLICIT_ACCESSW> keep_rules;
+
+        for (DWORD i = 0; i < old_permissions->AceCount; i++) {
+
+            LPVOID ace = nullptr;
+
+            if (!GetAce(old_permissions, i, &ace)) {
+                continue;
+            }
+
+            ACE_HEADER* header = (ACE_HEADER*) ace;
+
+            if (header->AceType != ACCESS_ALLOWED_ACE_TYPE) {
+                continue;
+            }
+
+            ACCESS_ALLOWED_ACE* allowed = (ACCESS_ALLOWED_ACE*) ace;
+            PSID ace_sid = &allowed->SidStart;
+
+            // Removes the previously added permission
+            if (EqualSid(ace_sid, sid)) {
+                continue;
+            }
+
+            EXPLICIT_ACCESSW rule = {
+                .grfAccessPermissions = allowed->Mask,
+                .grfAccessMode = GRANT_ACCESS,
+                .grfInheritance = header->AceFlags,
+                .Trustee = {
+                    .TrusteeForm = TRUSTEE_IS_SID,
+                    .TrusteeType = TRUSTEE_IS_UNKNOWN,
+                    .ptstrName = (LPWSTR) ace_sid
+                }
+            };
+
+            keep_rules.push_back(rule);
+
+        }
+
+        PACL new_permissions = nullptr;
+
+        if (!keep_rules.empty()) {
+            result = SetEntriesInAclW(
+                (ULONG )keep_rules.size(),
+                keep_rules.data(),
+                nullptr,
+                &new_permissions
+            );
+            if (result != ERROR_SUCCESS) {
+                if (security_descriptor) {
+                    LocalFree(security_descriptor);
+                }
+                return false;
+            }
+        }
+
+        result = SetNamedSecurityInfoW(
+            (LPWSTR) path.c_str(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            new_permissions,
+            nullptr
+        );
+
+        if (security_descriptor) {
+            LocalFree(security_descriptor);
+        }
+
+        if (new_permissions) {
+            LocalFree(new_permissions);
+        }
+
+        return result == ERROR_SUCCESS;
+
+    };
+
+    for(const auto& [_, path] : redirections) {
+        if(toggle) {
+            if(!apply_permission(path)) {
+                Wh_Log(L"Failed to add special permissions to redirected assets path: %s", path.c_str());
+            }
+        } else {
+            if(!remove_permission(path)) {
+                Wh_Log(L"Failed to remove special permissions from redirected assets path: %s", path.c_str());
+            }
+        }
+    }
+
+    if(toggle) {
+        Wh_Log(L"Added special permissions to redirected assets.");
+    } else {
+        Wh_Log(L"Removed special permissions from redirected assets.");
+    }
+
+    if(sid) {
+       LocalFree(sid);
+    }
 
 }
 
@@ -1004,6 +1219,16 @@ void LoadSettings() {
         LoadRedirections(redirections);
         write_redirections_cache(redirections);
 
+        BOOL grant_permissions = Wh_GetIntSetting(L"grant-permissions");
+
+        if (!grant_permissions && g_grant_permissions) {
+            TogglePermissions(redirections, false);
+        } else if (grant_permissions) {
+            TogglePermissions(redirections, true);
+        }
+
+        g_grant_permissions = grant_permissions;
+
         Wh_Log(L"Loaded %i redirections and stored them to shared cache.", redirections.size());
         g_redirections = std::move(redirections);
 
@@ -1067,7 +1292,14 @@ BOOL Wh_ModSettingsChanged(BOOL* bReload) {
 }
 
 void Wh_ModUninit() {
+
     ClearRedirectionsCache();
+
     RefreshIcons();
     MarkShouldRefreshIcons();
+
+    if(g_grant_permissions) {
+        TogglePermissions(g_redirections, false);
+    }
+
 }
