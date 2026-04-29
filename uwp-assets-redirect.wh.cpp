@@ -745,83 +745,6 @@ void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirecti
 
 }
 
-std::wstring get_assets_folder(const std::wstring& appx_manifest) {
-
-    std::wifstream file(appx_manifest.c_str());
-
-    if (!file.is_open()) {
-        Wh_Log(L"Failed to open manifest: %s", appx_manifest.c_str());
-        return L"";
-    }
-
-    std::wstringstream buffer;
-    buffer << file.rdbuf();
-
-    std::wstring xml = buffer.str();
-
-    const std::wstring openTag = L"<Logo>";
-    const std::wstring closeTag = L"</Logo>";
-
-    size_t start = xml.find(openTag);
-
-    if (start == std::wstring::npos) {
-        Wh_Log(L"Failed to find opening <Logo> tag: %s", appx_manifest.c_str());
-        return L"";
-    }
-
-    start += openTag.length();
-    size_t end = xml.find(closeTag, start);
-
-    if (end == std::wstring::npos) {
-        Wh_Log(L"Failed to find closing <Logo> tag: %s", appx_manifest.c_str());
-        return L"";
-    }
-
-    std::wstring logo_content = xml.substr(start, end - start);
-    size_t backslash_position = logo_content.find_last_of('\\');
-
-    // If assets are in root directory
-    if (backslash_position == std::wstring::npos) {
-        Wh_Log(L"Failed to find external assets folder, assets are in the root directory: %s", appx_manifest.c_str());
-        return L"";
-    }
-
-    return logo_content.substr(0, backslash_position);
-
-}
-
-std::wstring find_bundle_folder(const std::wstring& apps_directory, const std::wstring& app_bundle) {
-
-    for (const auto& entry : std::filesystem::directory_iterator(apps_directory)) {
-
-        if (!entry.is_directory()) {
-            continue;
-        }
-
-        std::wstring path = entry.path().wstring();
-
-        size_t last_backslash_index = path.find_last_of('\\');
-        size_t version_index = path.find_first_of('_', last_backslash_index);
-
-        if (last_backslash_index == std::string::npos || version_index == std::string::npos) {
-            continue;
-        }
-
-        if (path.substr(last_backslash_index + 1, version_index - last_backslash_index - 1) != app_bundle) {
-            continue;
-        }
-
-        if (path.find(L"neutral", version_index) != std::string::npos) {
-            continue;
-        }
-
-        return path;
-
-    }
-
-    return L"";
-}
-
 const std::wstring g_redirections_cache_size_key = L"redirections_cache_size";
 const std::wstring g_redirections_cache_key = L"redirections_cache";
 
@@ -1037,6 +960,83 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
     auto add_bundle_redirections = [&redirections, normalize_path, read_themes_section](std::wstring config_key, std::wstring target_base) {
 
         auto deduct_bundle = [target_base](std::wstring bundle, std::wstring& bundle_id, std::wstring& assets_folder) {
+
+            const auto get_assets_folder = [](const std::wstring& appx_manifest) -> std::wstring {
+
+                std::wifstream file(appx_manifest.c_str());
+
+                if (!file.is_open()) {
+                    Wh_Log(L"Failed to open manifest: %s", appx_manifest.c_str());
+                    return L"";
+                }
+
+                std::wstringstream buffer;
+                buffer << file.rdbuf();
+
+                std::wstring xml = buffer.str();
+
+                const std::wstring openTag = L"<Logo>";
+                const std::wstring closeTag = L"</Logo>";
+
+                size_t start = xml.find(openTag);
+
+                if (start == std::wstring::npos) {
+                    Wh_Log(L"Failed to find opening <Logo> tag: %s", appx_manifest.c_str());
+                    return L"";
+                }
+
+                start += openTag.length();
+                size_t end = xml.find(closeTag, start);
+
+                if (end == std::wstring::npos) {
+                    Wh_Log(L"Failed to find closing <Logo> tag: %s", appx_manifest.c_str());
+                    return L"";
+                }
+
+                std::wstring logo_content = xml.substr(start, end - start);
+                size_t backslash_position = logo_content.find_last_of('\\');
+
+                // If assets are in root directory
+                if (backslash_position == std::wstring::npos) {
+                    Wh_Log(L"Failed to find external assets folder, assets are in the root directory: %s", appx_manifest.c_str());
+                    return L"";
+                }
+
+                return logo_content.substr(0, backslash_position);
+
+            };
+
+            const auto find_bundle_folder = [](const std::wstring& apps_directory, const std::wstring& app_bundle) -> std::wstring {
+
+                for (const auto& entry : std::filesystem::directory_iterator(apps_directory)) {
+
+                    if (!entry.is_directory()) {
+                        continue;
+                    }
+
+                    std::wstring path = entry.path().wstring();
+
+                    size_t last_backslash_index = path.find_last_of('\\');
+                    size_t version_index = path.find_first_of('_', last_backslash_index);
+
+                    if (last_backslash_index == std::string::npos || version_index == std::string::npos) {
+                        continue;
+                    }
+
+                    if (path.substr(last_backslash_index + 1, version_index - last_backslash_index - 1) != app_bundle) {
+                        continue;
+                    }
+
+                    if (path.find(L"neutral", version_index) != std::string::npos) {
+                        continue;
+                    }
+
+                    return path;
+
+                }
+
+                return L"";
+            };
 
             const auto trim = [](std::wstring string) -> std::wstring {
 
