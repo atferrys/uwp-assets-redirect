@@ -444,7 +444,7 @@ constexpr WCHAR g_clear_cache_command[] =
 
     LR"(& start explorer.exe)"
     LR"(& echo Starting Explorer...)"
-    LR"(& timeout /t 3 /nobreak >nul)";
+    LR"(& timeout /t 3 /nobreak >nul")";
 
 const std::wstring g_should_refresh_icons_key = L"should_refresh_icons";
 
