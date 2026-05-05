@@ -546,19 +546,15 @@ void RefreshIcons(bool check_should_refresh = false) {
 
 }
 
+// SID for "ALL APPLICATION PACKAGES"
+constexpr LPCWSTR g_permission_sid = L"S-1-15-2-1";
 // SID for "ALL RESTRICTED APPLICATION PACKAGES"
-constexpr LPCWSTR g_permission_sid = L"S-1-15-2-2";
+constexpr LPCWSTR g_permission_restricted_sid = L"S-1-15-2-2";
 constexpr DWORD g_permission_access_mask = GENERIC_READ | GENERIC_EXECUTE;
 
 void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirections, bool toggle) {
 
-    PSID sid;
-
-    if (!ConvertStringSidToSid(g_permission_sid, &sid)) {
-        sid = nullptr;
-    }
-
-    const auto apply_permission = [sid](const std::wstring path) -> BOOL {
+    const auto apply_permission = [](const std::wstring path, PSID sid) -> BOOL {
 
         PACL old_permissions = nullptr;
         PSECURITY_DESCRIPTOR security_descriptor = nullptr;
@@ -627,7 +623,7 @@ void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirecti
 
     };
 
-    const auto remove_permission = [sid](const std::wstring path) -> BOOL {
+    const auto remove_permission = [](const std::wstring path, PSID sid) -> BOOL {
 
         PACL old_permissions = nullptr;
         PSECURITY_DESCRIPTOR security_descriptor = nullptr;
@@ -725,13 +721,23 @@ void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirecti
 
     };
 
+    PSID sid, restricted_sid;
+
+    if (!ConvertStringSidToSid(g_permission_sid, &sid)) {
+        sid = nullptr;
+    }
+
+    if (!ConvertStringSidToSid(g_permission_restricted_sid, &restricted_sid)) {
+        restricted_sid = nullptr;
+    }
+
     for(const auto& [_, path] : redirections) {
         if(toggle) {
-            if(!apply_permission(path)) {
+            if(!apply_permission(path, sid) || !apply_permission(path, restricted_sid)) {
                 Wh_Log(L"Failed to add special permissions to redirected assets path: %s", path.c_str());
             }
         } else {
-            if(!remove_permission(path)) {
+            if(!remove_permission(path, sid) || !remove_permission(path, restricted_sid)) {
                 Wh_Log(L"Failed to remove special permissions from redirected assets path: %s", path.c_str());
             }
         }
@@ -745,6 +751,10 @@ void TogglePermissions(std::unordered_map<std::wstring, std::wstring>& redirecti
 
     if(sid) {
        LocalFree(sid);
+    }
+
+    if(restricted_sid) {
+        LocalFree(restricted_sid);
     }
 
 }
