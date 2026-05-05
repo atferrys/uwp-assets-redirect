@@ -13,6 +13,7 @@
 // @include         ShellHost.exe
 // @include         RuntimeBroker.exe
 // @include         Taskmgr.exe
+// @exclude         windhawk.exe
 // ==/WindhawkMod==
 
 // ==WindhawkModReadme==
