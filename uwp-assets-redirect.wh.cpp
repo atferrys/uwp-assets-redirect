@@ -1045,6 +1045,10 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
                         continue;
                     }
 
+                    if (!std::filesystem::exists(std::filesystem::path(path) / "AppxManifest.xml")) {
+                        continue;
+                    }
+
                     return path;
 
                 }
