@@ -171,7 +171,7 @@ but also to the applications themselves, changing their look as well (like the s
     - redirect: ""
       $name: Redirection folder
       $description: The folder with the custom assets files.
-  $name: ⚠️ CAUTION - Custom Redirections
+  $name: Custom Redirections
   $description: >-
     Redirections for system apps that aren't found in any of the previous folders.
 
@@ -847,6 +847,36 @@ void ClearRedirectionsCache(bool check_main = true) {
     }
 }
 
+inline constexpr auto g_custom_redirections_blacklist = std::to_array<std::wstring_view>({
+    LR"(?:\)",
+
+    LR"(C:\Windows)",
+    LR"(C:\Windows\System32)",
+    LR"(C:\Windows\SysWOW64)",
+    LR"(C:\Windows\WinSxS)",
+    LR"(C:\Windows\servicing)",
+    LR"(C:\Windows\Boot)",
+    LR"(C:\Windows\CSC)",
+    LR"(C:\Windows\SystemResources)",
+    LR"(C:\Windows\System32\Config)",
+    LR"(C:\Windows\ServiceProfiles)",
+
+    LR"(C:\ProgramData\Microsoft\Crypto)",
+    LR"(C:\ProgramData\Microsoft\Windows\SystemData)",
+
+    LR"(?:\Program Files)",
+    LR"(?:\Program Files (x86))",
+
+    LR"(?:\Users)",
+    LR"(?:\Users\*\AppData)",
+    LR"(?:\Users\*\AppData\Local)",
+    LR"(?:\Users\*\AppData\Roaming)",
+    LR"(?:\Users\*\AppData\LocalLow)",
+
+    LR"(C:\Program Files\WindowsApps)",
+    LR"(C:\Windows\SystemApps)"
+});
+
 void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirections) {
 
     auto normalize_path = [](std::wstring path, std::wstring base_path = L"C:\\Windows\\System32\\") -> std::wstring {
@@ -1178,6 +1208,61 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     auto add_custom_redirections = [&redirections, normalize_path, read_themes_section](std::wstring config_key) {
 
+        const auto is_path_valid = [normalize_path](std::wstring path) -> BOOL {
+
+            // Matches ? as a single character, and * as any number of characters
+            const auto pattern_match = [](const wchar_t* pat, size_t plen, const wchar_t* str, size_t slen) -> BOOL {
+                const wchar_t* p = pat;
+                const wchar_t* s = str;
+                const wchar_t* p_end = pat + plen;
+                const wchar_t* s_end = str + slen;
+
+                const wchar_t* star_pat = nullptr;
+                const wchar_t* star_str = nullptr;
+
+                while (s < s_end) {
+                    if (p < p_end && (*p == L'?' || std::towlower(*p) == std::towlower(*s))) {
+                        ++p;
+                        ++s;
+                    } else if (p < p_end && *p == L'*') {
+                        star_pat = p++;
+                        star_str = s;
+                    } else if (star_pat) {
+                        p = star_pat + 1;
+                        s = ++star_str;
+                    } else {
+                        return false;
+                    }
+                }
+
+                while (p < p_end && *p == L'*') {
+                    ++p;
+                }
+
+                return p == p_end;
+            };
+
+            std::wstring normalized_path = normalize_path(path);
+
+            for(const auto& blacklisted_path : g_custom_redirections_blacklist) {
+
+                // Check if the path is in blacklist
+                if(pattern_match(blacklisted_path.data(), blacklisted_path.size(), normalized_path.data(), normalized_path.size())) {
+                    return false;
+                }
+
+                // Check if the path pattern matches one of the paths that are in blacklist.
+                // Will prevent the matching of blacklisted folders with wildcards
+                if(pattern_match(normalized_path.data(), normalized_path.size(), blacklisted_path.data(), blacklisted_path.size())) {
+                    return false;
+                }
+
+            }
+
+            return true;
+
+        };
+
         // Load from settings
 
         for(int i = 0;; i++) {
@@ -1189,10 +1274,16 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
             if(hasRedirection) {
 
-                auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
-                auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
+                if(is_path_valid(assets_path)) {
 
-                redirections[path] = redirection;
+                    auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
+                    auto redirection = std::format(L"\\??\\{}", normalize_path(redirect));
+
+                    redirections[path] = redirection;
+
+                } else {
+                    Wh_Log(L"Ignoring illegal custom redirection path: %s", assets_path);
+                }
 
             }
 
@@ -1207,7 +1298,12 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
         // Load from theme paths
 
-        const auto add_redirection = [&redirections, normalize_path](std::wstring assets_path, std::wstring redirect, std::filesystem::path theme_folder) {
+        const auto add_redirection = [&redirections, normalize_path, is_path_valid](std::wstring assets_path, std::wstring redirect, std::filesystem::path theme_folder) {
+
+            if(!is_path_valid(assets_path)) {
+                Wh_Log(L"Ignoring illegal custom redirection path: %s", assets_path.c_str());
+                return;
+            }
 
             auto path = std::format(L"\\??\\{}", normalize_path(assets_path));
             auto redirection = std::format(L"\\??\\{}", normalize_path(redirect, theme_folder));
