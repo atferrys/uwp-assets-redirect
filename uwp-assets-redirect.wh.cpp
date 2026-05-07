@@ -14,6 +14,7 @@
 // @include         RuntimeBroker.exe
 // @include         Taskmgr.exe
 // @exclude         windhawk.exe
+// @compilerOptions -lcomctl32 -lole32 -loleaut32
 // ==/WindhawkMod==
 
 // ==WindhawkModReadme==
