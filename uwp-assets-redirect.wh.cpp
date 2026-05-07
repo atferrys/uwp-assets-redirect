@@ -1715,9 +1715,9 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
-    load_config_redirections();
-    load_themes_redirections();
     load_icon_theme_redirections();
+    load_themes_redirections();
+    load_config_redirections();
 
 }
 
