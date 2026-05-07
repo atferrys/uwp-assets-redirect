@@ -25,6 +25,14 @@ or modifying system files permissions.
 ## Example: Before and After
 ![Before and after comparison of some applications](https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/main/docs-assets/example-before-after.png)
 
+# Icon themes
+You can apply Icon themes directly from the **Settings** tab by selecting one from the list.
+The theme will be automatically downloaded and applied. You can see the full list of themes
+and their previews in the [theme repository](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes).
+
+_To contribute a new theme to the theme repository, follow the instructions
+[here](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes#contributing-new-themes)._
+
 # Finding the Application bundle and assets
 You can quickly identify both the application bundle and its Assets folder using Task Manager.
 
@@ -112,14 +120,21 @@ You can change this behavior using the "Custom process inclusion list" in the Ad
 
 Doing this applies your asset changes not only to the Windows shell,
 but also to the applications themselves, changing their look as well (like the splash screen).
-
-# Planned features
-- Downloadable themes like in Resource Redirect, Taskbar Styler, Notification Center Styler, and others.
 */
 // ==/WindhawkModReadme==
 
 // ==WindhawkModSettings==
 /*
+- icon-theme: ""
+  $name: Icon theme
+  $description: >-
+    The icon theme to use. Select one and it will be automatically
+    downloaded and applied.
+
+    You can contribute to the themes repository by following
+    the instructions in the details tab.
+  $options:
+  - "": None
 - theme-paths: [""]
   $name: Theme paths
   $description: >-
@@ -192,11 +207,15 @@ but also to the applications themselves, changing their look as well (like the s
 // ==/WindhawkModSettings==
 
 #include <windhawk_utils.h>
+#include <initguid.h>
 #include <windows.h>
 #include <winternl.h>
 #include <shlobj.h>
 #include <Aclapi.h>
 #include <sddl.h>
+#include <winrt/base.h>
+#include <comutil.h>
+#include <shldisp.h>
 #include <format>
 #include <string>
 #include <unordered_map>
@@ -1161,6 +1180,71 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
+    auto add_theme_redirections = [add_bundle_redirection, add_custom_redirection](std::filesystem::path theme_ini, std::filesystem::path theme_folder) {
+
+        if(!std::filesystem::exists(theme_ini)) {
+            Wh_Log(L"Failed to read theme file, path doesn't exist: %s", theme_ini.c_str());
+            return;
+        }
+
+        const auto read_section = [theme_ini](std::wstring section_key, auto on_pair_read) {
+
+            auto theme_ini_size = std::filesystem::file_size(theme_ini);
+            std::wstring buffer(theme_ini_size + 2, L'\0');
+
+            DWORD result = GetPrivateProfileSection(
+                section_key.c_str(),
+                buffer.data(), buffer.size(),
+                theme_ini.c_str()
+            );
+
+            if (!result || result == buffer.size() - 2) {
+                Wh_Log(L"Error reading section \"%s\" from theme file: %s - Error %u", section_key.c_str(), theme_ini.c_str(), GetLastError());
+                return;
+            }
+
+            const wchar_t* ptr = buffer.data();
+
+            while (*ptr) {
+
+                std::wstring entry(ptr);
+                size_t separator_index = entry.find(L'=');
+
+                if (separator_index != std::wstring::npos) {
+
+                    std::wstring key = entry.substr(0, separator_index);
+                    std::wstring value = entry.substr(separator_index + 1);
+
+                    on_pair_read(key, value);
+
+                }
+
+                ptr += entry.size() + 1;
+
+            }
+
+        };
+
+        // Load WindowsApps redirections
+
+        read_section(L"windows-apps", [add_bundle_redirection, theme_folder](std::wstring bundle, std::wstring redirect) {
+            add_bundle_redirection(L"C:\\Program Files\\WindowsApps", bundle, redirect, theme_folder);
+        });
+
+        // Load SystemApps redirections
+
+        read_section(L"system-apps", [add_bundle_redirection, theme_folder](std::wstring bundle, std::wstring redirect) {
+            add_bundle_redirection(L"C:\\Windows\\SystemApps", bundle, redirect, theme_folder);
+        });
+
+        // Load Custom redirections
+
+        read_section(L"custom", [add_custom_redirection, theme_folder](std::wstring assets_path, std::wstring redirect) {
+            add_custom_redirection(assets_path, redirect, theme_folder);
+        });
+
+    };
+
     auto load_config_redirections = [add_bundle_redirection, add_custom_redirection]() {
 
         // Load WindowsApps redirections
@@ -1231,7 +1315,7 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
-    auto load_themes_redirections = [add_bundle_redirection, add_custom_redirection, normalize_path]() {
+    auto load_themes_redirections = [add_theme_redirections, normalize_path]() {
 
         for(int i = 0;; i++) {
 
@@ -1254,66 +1338,7 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
                     theme_folder = normalized_theme_path.parent_path();
                 }
 
-                if(!std::filesystem::exists(theme_ini)) {
-                    Wh_Log(L"Failed to read theme file, path doesn't exist: %s", theme_ini.c_str());
-                    continue;
-                }
-
-                const auto read_section = [theme_ini](std::wstring section_key, auto on_pair_read) {
-
-                    auto theme_ini_size = std::filesystem::file_size(theme_ini);
-                    std::wstring buffer(theme_ini_size + 2, L'\0');
-
-                    DWORD result = GetPrivateProfileSection(
-                        section_key.c_str(),
-                        buffer.data(), buffer.size(),
-                        theme_ini.c_str()
-                    );
-
-                    if (!result || result == buffer.size() - 2) {
-                        Wh_Log(L"Error reading section \"%s\" from theme file: %s - Error %u", section_key.c_str(), theme_ini.c_str(), GetLastError());
-                        return;
-                    }
-
-                    const wchar_t* ptr = buffer.data();
-
-                    while (*ptr) {
-
-                        std::wstring entry(ptr);
-                        size_t separator_index = entry.find(L'=');
-
-                        if (separator_index != std::wstring::npos) {
-
-                            std::wstring key = entry.substr(0, separator_index);
-                            std::wstring value = entry.substr(separator_index + 1);
-
-                            on_pair_read(key, value);
-
-                        }
-
-                        ptr += entry.size() + 1;
-
-                    }
-
-                };
-
-                // Load WindowsApps redirections
-
-                read_section(L"windows-apps", [add_bundle_redirection, theme_folder](std::wstring bundle, std::wstring redirect) {
-                    add_bundle_redirection(L"C:\\Program Files\\WindowsApps", bundle, redirect, theme_folder);
-                });
-
-                // Load SystemApps redirections
-
-                read_section(L"system-apps", [add_bundle_redirection, theme_folder](std::wstring bundle, std::wstring redirect) {
-                    add_bundle_redirection(L"C:\\Windows\\SystemApps", bundle, redirect, theme_folder);
-                });
-
-                // Load Custom redirections
-
-                read_section(L"custom", [add_custom_redirection, theme_folder](std::wstring assets_path, std::wstring redirect) {
-                    add_custom_redirection(assets_path, redirect, theme_folder);
-                });
+                add_theme_redirections(theme_ini, theme_folder);
 
             }
 
@@ -1327,8 +1352,371 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
 
     };
 
+    auto load_icon_theme_redirections = [add_theme_redirections]() {
+
+        // Download icon themes directly with mod options.
+        // Mostly taken and adapted from:
+        // https://github.com/ramensoftware/windhawk-mods/blob/9ee749979a3dfa668f4a16432d449f77ffb4fce9/mods/icon-resource-redirect.wh.cpp#L2150-L2453
+
+        const auto get_icon_theme_path = [](std::wstring icon_theme) -> std::wstring {
+
+            const auto replace = [](std::wstring string, const wchar_t old_character, const wchar_t new_character) -> std::wstring {
+                std::wstring string_copy = string;
+                std::replace(string_copy.begin(), string_copy.end(), old_character, new_character);
+                return string_copy;
+            };
+
+            const auto create_lock = [](std::filesystem::path lock_file, DWORD timeout) {
+
+                HANDLE hFile = CreateFile(
+                    lock_file.c_str(),
+                    GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    nullptr,
+                    OPEN_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+                    nullptr
+                );
+
+                if (hFile == INVALID_HANDLE_VALUE) {
+                    return INVALID_HANDLE_VALUE;
+                }
+
+                HANDLE hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+
+                if (!hEvent) {
+                    CloseHandle(hFile);
+                    return INVALID_HANDLE_VALUE;
+                }
+
+                OVERLAPPED ov = {
+                    .hEvent = hEvent
+                };
+
+                // Lock first byte only.
+                BOOL locked = LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &ov);
+
+                if (!locked) {
+
+                    DWORD err = GetLastError();
+
+                    if (err != ERROR_IO_PENDING) {
+                        CloseHandle(hEvent);
+                        CloseHandle(hFile);
+                        return INVALID_HANDLE_VALUE;
+                    }
+
+                    DWORD waitResult = WaitForSingleObject(hEvent, timeout);
+
+                    if (waitResult != WAIT_OBJECT_0) {
+                        CancelIo(hFile);
+                        CloseHandle(hEvent);
+                        CloseHandle(hFile);
+                        return INVALID_HANDLE_VALUE;
+                    }
+
+                    DWORD bytesTransferred;
+
+                    if (!GetOverlappedResult(hFile, &ov, &bytesTransferred, FALSE)) {
+                        CloseHandle(hEvent);
+                        CloseHandle(hFile);
+                        return INVALID_HANDLE_VALUE;
+                    }
+
+                }
+
+                CloseHandle(hEvent);
+
+                return hFile;
+
+            };
+
+            const auto remove_lock = [](HANDLE lock_handle, std::filesystem::path lock_file) {
+
+                OVERLAPPED ov = {};
+                BOOL unlocked = UnlockFileEx(lock_handle, 0, 1, 0, &ov);
+                CloseHandle(lock_handle);
+
+                if(unlocked) {
+                    DeleteFile(lock_file.c_str());
+                }
+
+                return unlocked;
+
+            };
+
+            const auto download_theme = [](std::wstring icon_theme, std::filesystem::path& temp_zip, std::filesystem::path& temp_extract, std::filesystem::path& icon_theme_path) {
+
+                const auto unzip_to_folder = [](std::filesystem::path zip_file, std::filesystem::path destination_path) {
+
+                    winrt::com_ptr<IShellDispatch> shellDispatch;
+                    HRESULT result = CoCreateInstance(
+                        CLSID_Shell,
+                        nullptr,
+                        CLSCTX_INPROC_SERVER,
+                        IID_PPV_ARGS(shellDispatch.put())
+                    );
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    VARIANT zipFileVariant;
+                    zipFileVariant.vt = VT_BSTR;
+                    zipFileVariant.bstrVal = _bstr_t(zip_file.c_str());
+
+                    winrt::com_ptr<Folder> zipFile;
+                    result = shellDispatch->NameSpace(zipFileVariant, zipFile.put());
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    if (!zipFile) {
+                        return E_FAIL;
+                    }
+
+                    VARIANT destinationVariant;
+                    destinationVariant.vt = VT_BSTR;
+                    destinationVariant.bstrVal = _bstr_t(destination_path.c_str());
+
+                    winrt::com_ptr<Folder> destination;
+                    result = shellDispatch->NameSpace(destinationVariant, destination.put());
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    if (!destination) {
+                        return E_FAIL;
+                    }
+
+
+                    winrt::com_ptr<FolderItems> zipFiles;
+                    result = zipFile->Items(zipFiles.put());
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    if (!zipFiles) {
+                        return E_FAIL;
+                    }
+
+                    LONG zipFilesCount;
+                    result = zipFiles->get_Count(&zipFilesCount);
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    // If the zip contains a single folder, select it to avoid an extra nesting.
+                    if (zipFilesCount == 1) {
+
+                        VARIANT index;
+                        index.vt = VT_I4;
+                        index.lVal = 0;
+
+                        winrt::com_ptr<FolderItem> zipSubFolderItem;
+                        result = zipFiles->Item(index, zipSubFolderItem.put());
+
+                        if (FAILED(result)) {
+                            return result;
+                        }
+
+                        if (!zipSubFolderItem) {
+                            return E_FAIL;
+                        }
+
+                        VARIANT_BOOL isFolder;
+                        result = zipSubFolderItem->get_IsFolder(&isFolder);
+
+                        if (FAILED(result)) {
+                            return result;
+                        }
+
+                        if (isFolder) {
+
+                            winrt::com_ptr<IDispatch> zipSubFolderDispatch;
+                            result = zipSubFolderItem->get_GetFolder(zipSubFolderDispatch.put());
+
+                            if (FAILED(result)) {
+                                return result;
+                            }
+
+                            if (!zipSubFolderDispatch) {
+                                return E_FAIL;
+                            }
+
+                            winrt::com_ptr<Folder> zipSubFolder;
+                            result = zipSubFolderDispatch->QueryInterface(IID_PPV_ARGS(zipSubFolder.put()));
+
+                            if (FAILED(result)) {
+                                return result;
+                            }
+
+                            if (!zipSubFolder) {
+                                return E_FAIL;
+                            }
+
+                            result = zipSubFolder->Items(zipFiles.put());
+
+                            if (FAILED(result)) {
+                                return result;
+                            }
+
+                            if (!zipFiles) {
+                                return E_FAIL;
+                            }
+
+                        }
+
+                    }
+
+                    winrt::com_ptr<IDispatch> zipFilesDispatch;
+                    result = zipFiles->QueryInterface(IID_PPV_ARGS(zipFilesDispatch.put()));
+
+                    if (FAILED(result)) {
+                        return result;
+                    }
+
+                    if (!zipFilesDispatch) {
+                        return E_FAIL;
+                    }
+
+                    VARIANT itemVariant;
+                    itemVariant.vt = VT_DISPATCH;
+                    itemVariant.pdispVal = zipFilesDispatch.get();
+
+                    VARIANT options;
+                    options.vt = VT_I4;
+                    options.lVal = FOF_NO_UI;
+
+                    return destination->CopyHere(itemVariant, options);
+
+                };
+
+                const std::wstring theme_url = std::format(
+                    L"https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/refs/heads/themes-test/themes/{}.zip",
+                    icon_theme
+                );
+
+                WH_GET_URL_CONTENT_OPTIONS options {
+                    .optionsSize = sizeof(options),
+                    .targetFilePath = temp_zip.c_str(),
+                };
+
+                const WH_URL_CONTENT* response = Wh_GetUrlContent(theme_url.c_str(), &options);
+
+                if (!response) {
+                    Wh_Log(L"Failed to download Icon theme: Wh_GetUrlContent returned NULL.");
+                    return false;
+                }
+
+                if (response->statusCode != 200) {
+                    Wh_Log(L"Failed to download Icon theme: Request failed with code %d.", response->statusCode);
+                    return false;
+                }
+
+                Wh_FreeUrlContent(response);
+
+                HRESULT result = CoInitialize(nullptr);
+
+                if(FAILED(result)) {
+                    Wh_Log(L"Failed to download Icon theme: CoInitialize returned 0x%08X", result);
+                    return false;
+                }
+
+                std::error_code error_code;
+                std::filesystem::remove_all(temp_extract, error_code);
+                std::filesystem::create_directories(temp_extract, error_code);
+
+                result = unzip_to_folder(temp_zip, temp_extract);
+
+                if (FAILED(result)) {
+                    Wh_Log(L"Failed to download Icon theme: UnzipToFolder returned 0x%08X", result);
+                    return false;
+                }
+
+                std::filesystem::create_directories(icon_theme_path.parent_path());
+                std::filesystem::rename(temp_extract, icon_theme_path, error_code);
+
+                DeleteFile(temp_zip.c_str());
+                CoUninitialize();
+
+                return std::filesystem::is_directory(icon_theme_path, error_code);
+
+            };
+
+            if(icon_theme.empty()) {
+                return L"";
+            }
+
+            WCHAR storage_path_buffer[MAX_PATH];
+            if (!Wh_GetModStoragePath(storage_path_buffer, ARRAYSIZE(storage_path_buffer))) {
+                Wh_Log(L"Failed to setup Icon theme: Unable to get mod's storage path.");
+                return L"";
+            }
+
+            const auto storage_path = std::filesystem::path{storage_path_buffer} / "icon-themes";
+            std::filesystem::create_directories(storage_path);
+
+            auto icon_theme_path = storage_path / replace(icon_theme, L'/', L'\\');
+
+            std::error_code error_code;
+            if (std::filesystem::is_directory(icon_theme_path, error_code)) {
+                Wh_Log(L"Theme files for %s already downloaded.", icon_theme.c_str());
+                return icon_theme_path;
+            }
+
+            const auto lock_file = storage_path / std::format(L"{}_lock", replace(icon_theme, L'/', L'_'));
+            const HANDLE lock_handle = create_lock(lock_file, 30000);
+
+            if (!lock_handle) {
+                Wh_Log(L"Failed to download Icon theme: Unable to create temp lock file.");
+                return L"";
+            }
+
+            Wh_Log(L"Downloading Icon theme for %s...", icon_theme.c_str());
+
+            auto temp_zip = storage_path / std::format(L"{}_temp.zip", replace(icon_theme, L'/', L'_'));
+            auto temp_extract = storage_path / std::format(L"{}_temp_extract", replace(icon_theme, L'/', L'_'));
+
+            if (download_theme(icon_theme, temp_zip, temp_extract, icon_theme_path)) {
+                Wh_Log(L"Theme files for %s downloaded and extracted successfully.", icon_theme.c_str());
+            } else {
+                Wh_Log(L"Failed to download and extract icon theme.");
+                icon_theme_path.clear();
+            }
+
+            remove_lock(lock_handle, lock_file);
+
+            return icon_theme_path;
+
+        };
+
+        PCWSTR icon_theme = Wh_GetStringSetting(L"icon-theme");
+
+        if(*icon_theme) {
+
+            std::wstring icon_theme_path = get_icon_theme_path(std::wstring(icon_theme));
+
+            if(!icon_theme_path.empty()) {
+                add_theme_redirections(
+                    std::filesystem::path(icon_theme_path) / "theme.ini",
+                    std::filesystem::path(icon_theme_path)
+                );
+            }
+
+        }
+
+        Wh_FreeStringSetting(icon_theme);
+
+    };
+
     load_config_redirections();
     load_themes_redirections();
+    load_icon_theme_redirections();
 
 }
 

@@ -5,6 +5,14 @@ or modifying system files permissions.
 ## Example: Before and After
 ![Before and after comparison of some applications](https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/main/docs-assets/example-before-after.png)
 
+# Icon themes
+You can apply Icon themes directly from the **Settings** tab by selecting one from the list.
+The theme will be automatically downloaded and applied. You can see the full list of themes
+and their previews in the [theme repository](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes).
+
+_To contribute a new theme to the theme repository, follow the instructions
+[here](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes#contributing-new-themes)._
+
 # Finding the Application bundle and assets
 You can quickly identify both the application bundle and its Assets folder using Task Manager.
 
@@ -92,6 +100,3 @@ You can change this behavior using the "Custom process inclusion list" in the Ad
 
 Doing this applies your asset changes not only to the Windows shell,
 but also to the applications themselves, changing their look as well (like the splash screen).
-
-# Planned features
-- Downloadable themes like in Resource Redirect, Taskbar Styler, Notification Center Styler, and others.
