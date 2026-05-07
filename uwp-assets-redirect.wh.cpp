@@ -1598,7 +1598,7 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
                 };
 
                 const std::wstring theme_url = std::format(
-                    L"https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/refs/heads/themes-test/themes/{}.zip",
+                    L"https://raw.githubusercontent.com/atferrys/uwp-assets-redirect/refs/heads/main/themes/{}.zip",
                     icon_theme
                 );
 
