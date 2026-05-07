@@ -273,7 +273,7 @@ bool match(const T* pattern, size_t pattern_length, const T* str, size_t string_
                         break;
                     }
                 }
-                
+
                 if (!mismatch) {
                     found = true;
                     break;
@@ -338,7 +338,7 @@ NTSTATUS NTAPI NtCreateFile_Hook(
         size_t pathLength = originalPath.length();
 
         for(const auto& pair : g_redirections) {
-            
+
             const wchar_t* pattern = pair.first.c_str();
             size_t patternLength = pair.first.length();
 
@@ -355,7 +355,7 @@ NTSTATUS NTAPI NtCreateFile_Hook(
 
         if(!redirectPath.empty()) {
 
-            Wh_Log(L"[Redirect Attempt] %s -> %s", originalPath.c_str(), redirectPath.c_str());
+            //Wh_Log(L"[Redirect Attempt] %s -> %s", originalPath.c_str(), redirectPath.c_str());
 
             ObjectName->Buffer = (PWSTR) redirectPath.c_str();
             ObjectName->Length = (USHORT) (redirectPath.length() * sizeof(WCHAR));
@@ -376,16 +376,16 @@ NTSTATUS NTAPI NtCreateFile_Hook(
             );
 
             if(NT_SUCCESS(result)) {
-                Wh_Log(L"[Redirect Success] Redirected to: %s", redirectPath.c_str());
+                //Wh_Log(L"[Redirect Success] Redirected to: %s", redirectPath.c_str());
                 return result;
             }
 
-            Wh_Log(L"[Redirect Fail] Failed with code 0x%08X. Rolling back to original: %s", result, originalPath.c_str());
+            //Wh_Log(L"[Redirect Fail] Failed with code 0x%08X. Rolling back to original: %s", result, originalPath.c_str());
 
             ObjectName->Buffer = (PWSTR) originalPath.c_str();
             ObjectName->Length = (USHORT) (originalPath.length() * sizeof(WCHAR));
             ObjectName->MaximumLength = ObjectName->Length;
-            
+
         }
 
     }
@@ -1076,6 +1076,11 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
                     Wh_Log(L"Invalid assets folder for \"%s\", falling back to default.", bundle_id.c_str());
                 }
 
+                if(find_bundle_folder(bundles_root, bundle_id).empty()) {
+                    assets_folder = L"";
+                    Wh_Log(L"Failed to find bundle folder for \"%s\", skipping redirection.", bundle_id.c_str());
+                }
+
                 return;
             }
 
@@ -1083,8 +1088,8 @@ void LoadRedirections(std::unordered_map<std::wstring, std::wstring>& redirectio
             std::wstring bundle_folder = find_bundle_folder(bundles_root, bundle_id);
 
             if(bundle_folder.empty()) {
-                assets_folder = g_default_assets_folder;
-                Wh_Log(L"Failed to find bundle folder for \"%s\", falling back to default assets folder.", bundle_id.c_str());
+                assets_folder = L"";
+                Wh_Log(L"Failed to find bundle folder for \"%s\", skipping redirection.", bundle_id.c_str());
                 return;
             }
 
