@@ -100,3 +100,6 @@ You can change this behavior using the "Custom process inclusion list" in the Ad
 
 Doing this applies your asset changes not only to the Windows shell,
 but also to the applications themselves, changing their look as well (like the splash screen).
+
+# Contributions
+You can contribute to the mod development by opening a pull request [here](https://github.com/atferrys/uwp-assets-redirect/pulls).
