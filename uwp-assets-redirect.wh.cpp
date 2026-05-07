@@ -31,7 +31,7 @@ The theme will be automatically downloaded and applied. You can see the full lis
 and their previews in the [theme repository](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes).
 
 _To contribute a new theme to the theme repository, follow the instructions
-[here](https://github.com/atferrys/uwp-assets-redirect/tree/main/themes#contributing-new-themes)._
+[here](https://github.com/atferrys/uwp-assets-redirect/blob/main/themes/README.md#contributing-new-themes)._
 
 # Finding the Application bundle and assets
 You can quickly identify both the application bundle and its Assets folder using Task Manager.
