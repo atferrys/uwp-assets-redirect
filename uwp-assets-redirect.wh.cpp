@@ -2,7 +2,7 @@
 // @id              uwp-assets-redirect
 // @name            UWP Assets Redirect
 // @description     Replace UWP app assets (such as icons) without worrying about updates or modifying system files permissions.
-// @version         0.1
+// @version         1.0
 // @author          ferrys
 // @github          https://github.com/atferrys
 // @license         GPL-3.0
