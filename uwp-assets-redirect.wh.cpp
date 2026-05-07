@@ -135,6 +135,7 @@ but also to the applications themselves, changing their look as well (like the s
     the instructions in the details tab.
   $options:
   - "": None
+  - "ferrys/aero": Aero (by @ferrys)
 - theme-paths: [""]
   $name: Theme paths
   $description: >-
