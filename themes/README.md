@@ -3,6 +3,7 @@
 | Icon theme                                         | Preview                                                |
 |----------------------------------------------------|--------------------------------------------------------|
 | **Aero** by [@ferrys](https://github.com/atferrys) | ![Aero theme preview](https://i.imgur.com/9xwrDdv.png) |
+| **Luna** by [@ferrys](https://github.com/atferrys) | ![Luna theme preview](https://i.imgur.com/gXKsex4.png) |
 
 # Contributing new themes
 If you have created an icon theme that you would like to share,

@@ -142,6 +142,7 @@ You can contribute to the mod development by opening a pull request [here](https
   $options:
   - "": None
   - "ferrys/aero": Aero (by @ferrys)
+  - "ferrys/luna": Luna (by @ferrys)
 - theme-paths: [""]
   $name: Theme paths
   $description: >-
