@@ -13,6 +13,20 @@ and their previews in the [theme repository](https://github.com/atferrys/uwp-ass
 _To contribute a new theme to the theme repository, follow the instructions
 [here](https://github.com/atferrys/uwp-assets-redirect/blob/main/themes/README.md#contributing-new-themes)._
 
+# Applying redirections
+You can apply redirections to _Windows Apps_, _System Apps_ and _Custom_ paths directly from
+the **Settings** tab.
+
+For each redirection you will need to specify the **Bundle name** and a **Redirection folder or .ico file**:
+You can find the application bundle by following [the guide below](#finding-the-application-bundle-and-assets),
+then you can specify a folder with the custom assets files or a single `.ico` file.
+
+If you provide a single `.ico` file, only the app icons shown throughout the generic parts of the system will be
+replaced _(e.g. File Explorer, Start Menu, etc...)_, and it may not always be able to generate the correct assets.
+
+**To fully replace assets**, it's recommended to use a Redirection folder with the correct assets. You can
+find out more about creating custom assets [down below](#creating-custom-assets).
+
 # Finding the Application bundle and assets
 You can quickly identify both the application bundle and its Assets folder using Task Manager.
 
@@ -57,7 +71,7 @@ For example, the `theme.ini` file may contain the following redirection rules:
 For apps found in "`C:\Program Files\WindowsApps`" and in "`C:\Windows\SystemApps`",
 you can use respectively the `[windows-apps]` and `[system-apps]` headers.
 
-Each rule should be provided in this format: "`<application bundle>`=`<redirection folder>`".
+Each rule should be provided in this format: "`<application bundle>`=`<redirection folder/.ico>`".
 The application bundle can be easily found by following [the guide above](#finding-the-application-bundle-and-assets).
 
 ### Example config
@@ -65,6 +79,7 @@ The application bundle can be easily found by following [the guide above](#findi
 [windows-apps]
 Microsoft.WindowsStore=.\Microsoft Store
 Microsoft.WindowsCalculator=.\Calculator
+Microsoft.WindowsTerminal=Terminal.ico
 ```
 
 Most of the time, Assets Redirect can automatically locate the bundle's Assets folder.
